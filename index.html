@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Tier List Maker</title>
+  <link rel="icon" type="image/png" href="./favicon.png" />
+  <link rel="apple-touch-icon" href="./favicon.png" />
+  <link rel="stylesheet" href="./styles.css" />
+</head>
+<body>
+  <main class="app">
+    <section class="controls">
+      <div class="inline account-row">
+        <span id="user-email" class="pill"></span>
+        <button type="button" id="logout-btn">Logout</button>
+      </div>
+
+      <form id="list-controls" class="inline">
+        <select id="saved-list-select"></select>
+        <input id="saved-list-name" type="text" placeholder="Tier list name" maxlength="80" required />
+        <button type="button" id="new-list-btn">New List</button>
+        <button type="button" id="save-list-btn">Save List</button>
+        <button type="button" id="delete-list-btn">Delete List</button>
+      </form>
+
+      <form id="add-tier-form" class="inline">
+        <input id="tier-name" type="text" placeholder="New tier label" required maxlength="12" />
+        <button type="submit">Add Tier</button>
+      </form>
+
+      <form id="add-text-tile-form" class="inline">
+        <select id="text-tier-select"></select>
+        <input id="text-tile" type="text" placeholder="Tile text" required maxlength="30" />
+        <button type="submit">Add Text Tile</button>
+      </form>
+
+      <form id="deezer-form" class="inline">
+        <select id="album-tier-select"></select>
+        <input id="album-query" type="text" placeholder="Search album (Deezer)" required />
+        <button type="submit">Search</button>
+        <select id="album-results"></select>
+        <button type="button" id="add-album-btn">Add Album Tile</button>
+      </form>
+
+      <div class="inline">
+        <button type="button" id="export-btn">Export PNG</button>
+        <button type="button" id="reset-btn">Reset All</button>
+      </div>
+    </section>
+
+    <section id="tier-list" class="tier-list"></section>
+  </main>
+
+  <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
+  <script type="module" src="./app.js"></script>
+</body>
+</html>

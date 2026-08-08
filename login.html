@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Login - Tier List Maker</title>
+  <link rel="icon" type="image/png" href="./favicon.png" />
+  <link rel="apple-touch-icon" href="./favicon.png" />
+  <link rel="stylesheet" href="./styles.css" />
+</head>
+<body>
+  <main class="auth-page">
+    <form id="login-form" class="auth-card">
+      <h1>Login</h1>
+      <input id="email" type="email" placeholder="Email" required autocomplete="email" />
+      <input id="password" type="password" placeholder="Password" required autocomplete="current-password" />
+      <label class="toggle-pass"><input id="show-password" type="checkbox" /> Show password</label>
+      <button type="submit">Login</button>
+      <p id="error" class="error"></p>
+      <p class="muted">No account? <a href="./register.html">Register</a></p>
+    </form>
+  </main>
+  <script type="module" src="./login.js"></script>
+</body>
+</html>

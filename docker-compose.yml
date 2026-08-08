@@ -1,0 +1,9 @@
+services:
+  tier-list:
+    build: .
+    container_name: tier-list
+    restart: unless-stopped
+    ports:
+      - "3002:3002"
+    volumes:
+      - ./data:/app/data

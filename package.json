@@ -1,0 +1,16 @@
+{
+  "name": "tier-list-maker",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Tier list maker with local auth and per-user saved lists",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "express": "^4.21.2",
+    "sqlite": "^5.1.1",
+    "sqlite3": "^5.1.7"
+  }
+}
