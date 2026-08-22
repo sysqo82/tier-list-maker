@@ -16,16 +16,17 @@ function newId() {
 }
 
 function makeDefaultTiers() {
-  return ["S", "A", "B", "C", "D"].map(label => ({
+  return ["S", "A", "B", "C", "D"].map((label, i) => ({
     id: newId(),
     label,
+    color: tierColor(i, 5),
     tiles: [],
   }));
 }
 
 const state = {
   tiers: makeDefaultTiers(),
-  albumResults: [],
+  tray: [],
   savedLists: [],
   currentListId: null,
 };
@@ -42,18 +43,10 @@ const savedListName = document.getElementById("saved-list-name");
 const newListBtn = document.getElementById("new-list-btn");
 const saveListBtn = document.getElementById("save-list-btn");
 const deleteListBtn = document.getElementById("delete-list-btn");
-const addTierForm = document.getElementById("add-tier-form");
-const tierNameInput = document.getElementById("tier-name");
-const addTextForm = document.getElementById("add-text-tile-form");
-const textTierSelect = document.getElementById("text-tier-select");
-const textTileInput = document.getElementById("text-tile");
-const deezerForm = document.getElementById("deezer-form");
-const albumTierSelect = document.getElementById("album-tier-select");
-const albumQuery = document.getElementById("album-query");
-const albumResults = document.getElementById("album-results");
-const addAlbumBtn = document.getElementById("add-album-btn");
 const exportBtn = document.getElementById("export-btn");
 const resetBtn = document.getElementById("reset-btn");
+const uploadBtn = document.getElementById("upload-btn");
+const imageUpload = document.getElementById("image-upload");
 
 async function api(path, options = {}) {
   const res = await fetch(`${API_BASE}${path}`, {
@@ -83,7 +76,7 @@ function normalizeTile(tile) {
   if (!tile || typeof tile !== "object") return null;
 
   if (tile.type === "album") {
-    if (!tile.title || typeof tile.title !== "string") return null;
+    if (typeof tile.title !== "string") return null;
     return {
       id: typeof tile.id === "string" ? tile.id : newId(),
       type: "album",
@@ -103,23 +96,56 @@ function normalizeTile(tile) {
 
 function normalizeTiers(rawTiers) {
   if (!Array.isArray(rawTiers)) return [];
-  return rawTiers
-    .filter(t => t && typeof t === "object")
-    .map(t => ({
+  const arr = rawTiers.filter(t => t && typeof t === "object");
+  return arr
+    .map((t, i) => ({
       id: typeof t.id === "string" ? t.id : newId(),
       label: typeof t.label === "string" && t.label.trim() ? t.label.trim() : "Tier",
+      color: typeof t.color === "string" && t.color ? t.color : tierColor(i, arr.length || 5),
       tiles: Array.isArray(t.tiles) ? t.tiles.map(normalizeTile).filter(Boolean) : [],
     }))
     .filter(t => t.label.length > 0);
 }
 
 function payloadFromState() {
-  return { tiers: state.tiers };
+  return { tiers: state.tiers, tray: state.tray };
 }
 
 function applyPayload(payload) {
   const tiers = normalizeTiers(payload?.tiers);
   state.tiers = tiers.length ? tiers : makeDefaultTiers();
+  state.tray = Array.isArray(payload?.tray) ? payload.tray.map(normalizeTile).filter(Boolean) : [];
+}
+
+function rgbToHex(rgbStr) {
+  if (rgbStr.startsWith("#")) return rgbStr;
+  const match = rgbStr.match(/\d+/g);
+  if (!match || match.length < 3) return "#ffffff";
+  return "#" + match.slice(0, 3).map(x => parseInt(x).toString(16).padStart(2, "0")).join("");
+}
+
+function hslToHex(h, s, l) {
+  h /= 360; s /= 100; l /= 100;
+  let r, g, b;
+  if (s === 0) {
+    r = g = b = l;
+  } else {
+    const hue2rgb = (p, q, t) => {
+      if (t < 0) t += 1;
+      if (t > 1) t -= 1;
+      if (t < 1/6) return p + (q - p) * 6 * t;
+      if (t < 1/2) return q;
+      if (t < 2/3) return p + (q - p) * (2/3 - t) * 6;
+      return p;
+    };
+    const q = l < 0.5 ? l * (1 + s) : l + s - l * s;
+    const p = 2 * l - q;
+    r = hue2rgb(p, q, h + 1/3);
+    g = hue2rgb(p, q, h);
+    b = hue2rgb(p, q, h - 1/3);
+  }
+  const toHex = x => Math.round(x * 255).toString(16).padStart(2, '0');
+  return `#${toHex(r)}${toHex(g)}${toHex(b)}`;
 }
 
 function tierColor(index, total) {
@@ -128,27 +154,7 @@ function tierColor(index, total) {
   const hue = total <= 1
     ? hueStart
     : hueStart + ((hueEnd - hueStart) * index) / (total - 1);
-  return `hsl(${hue} 95% 74%)`;
-}
-
-function makeTextTile(text) {
-  return { id: newId(), type: "text", text };
-}
-
-function makeAlbumTile(album) {
-  return {
-    id: newId(),
-    type: "album",
-    title: album.title,
-    cover: album.cover_medium || album.cover || "",
-    artist: album.artist?.name || "",
-  };
-}
-
-function refreshTierSelects() {
-  const options = state.tiers.map(t => `<option value="${t.id}">${t.label}</option>`).join("");
-  textTierSelect.innerHTML = options;
-  albumTierSelect.innerHTML = options;
+  return hslToHex(hue, 95, 74);
 }
 
 function refreshSavedListSelect() {
@@ -161,28 +167,27 @@ function refreshSavedListSelect() {
   }
 }
 
-function addTileToTier(tierId, tile) {
-  const tier = state.tiers.find(t => t.id === tierId);
-  if (!tier) return;
-  tier.tiles.push(tile);
-}
-
 function removeTile(tileId) {
   for (const tier of state.tiers) {
     const idx = tier.tiles.findIndex(t => t.id === tileId);
     if (idx >= 0) return tier.tiles.splice(idx, 1)[0];
   }
+  const trayIdx = state.tray.findIndex(t => t.id === tileId);
+  if (trayIdx >= 0) return state.tray.splice(trayIdx, 1)[0];
   return null;
 }
 
 function renderTile(tile) {
   if (tile.type === "album") {
     const artist = tile.artist ? ` • ${tile.artist}` : "";
+    const captionText = `${tile.title}${artist}`;
+    const captionDiv = captionText ? `<div class="caption" title="${captionText}">${captionText}</div>` : "";
+    
     return `
       <article class="tile album" draggable="true" data-tile-id="${tile.id}">
         <button type="button" class="remove-tile" data-tile-id="${tile.id}" title="Remove tile">×</button>
         <img src="${tile.cover}" alt="${tile.title}" crossorigin="anonymous" />
-        <div class="caption" title="${tile.title}${artist}">${tile.title}${artist}</div>
+        ${captionDiv}
       </article>
     `;
   }
@@ -196,17 +201,37 @@ function renderTile(tile) {
 }
 
 function render() {
-  refreshTierSelects();
   refreshSavedListSelect();
 
   tierList.innerHTML = state.tiers.map((tier, i) => {
-    const color = tierColor(i, state.tiers.length);
+    if (!tier.color) {
+      tier.color = tierColor(i, state.tiers.length);
+    }
+    const color = tier.color;
+    let hexColor = color;
+    if (color.startsWith("rgb")) hexColor = rgbToHex(color);
+    else if (color.startsWith("hsl")) {
+      const match = color.match(/\d+/g);
+      if(match && match.length >= 3) {
+          hexColor = hslToHex(Number(match[0]), Number(match[1]), Number(match[2]));
+      }
+    }
+
     return `
-      <section class="tier-row" data-tier-id="${tier.id}">
+      <section class="tier-row" data-tier-id="${tier.id}" draggable="true">
         <div class="tier-label" style="background:${color}">
-          <span>${tier.label}</span>
-          <button type="button" class="edit-tier" data-tier-id="${tier.id}" title="Edit tier">✎</button>
-          <button type="button" class="remove-tier" data-tier-id="${tier.id}" title="Remove tier">×</button>
+          <div class="top-buttons">
+            <div class="add-menu-container">
+              <button type="button" class="add-tier-menu-btn" title="Add Tier">↕</button>
+              <div class="add-tier-dropdown">
+                <button type="button" class="add-tier-above" data-tier-id="${tier.id}">Add Above</button>
+                <button type="button" class="add-tier-below" data-tier-id="${tier.id}">Add Below</button>
+              </div>
+            </div>
+            <button type="button" class="remove-tier" data-tier-id="${tier.id}" title="Remove tier">×</button>
+          </div>
+          <input type="text" class="tier-name-input" data-tier-id="${tier.id}" value="${tier.label}" />
+          <input type="color" class="tier-color-input" data-tier-id="${tier.id}" value="${hexColor}" />
         </div>
         <div class="tier-zone" data-tier-id="${tier.id}">
           ${tier.tiles.map(renderTile).join("")}
@@ -215,6 +240,11 @@ function render() {
     `;
   }).join("");
 
+  const trayZone = document.getElementById("image-tray");
+  if (trayZone) {
+    trayZone.innerHTML = state.tray.map(renderTile).join("");
+  }
+
   setTileSizes();
   bindDnD();
 }
@@ -222,7 +252,7 @@ function render() {
 function setTileSizes() {
   const tierHeightRaw = getComputedStyle(document.documentElement).getPropertyValue("--tier-height");
   const tierHeight = Number.parseInt(tierHeightRaw, 10);
-  const size = Math.max(56, (Number.isNaN(tierHeight) ? 96 : tierHeight) - 14);
+  const size = Number.isNaN(tierHeight) ? 96 : tierHeight;
   document.querySelectorAll(".tier-zone").forEach(zone => {
     zone.style.setProperty("--tile-size", `${size}px`);
   });
@@ -239,17 +269,35 @@ function getDragAfterElement(zone, x) {
       closest = { offset, element: child };
     }
   }
+  return closest.element;
+}
 
+function getDragAfterRow(container, y) {
+  const draggableElements = [...container.querySelectorAll(".tier-row:not(.dragging-row)")];
+  let closest = { offset: Number.NEGATIVE_INFINITY, element: null };
+
+  for (const child of draggableElements) {
+    const box = child.getBoundingClientRect();
+    const offset = y - (box.top + box.height / 2);
+    if (offset < 0 && offset > closest.offset) {
+      closest = { offset, element: child };
+    }
+  }
   return closest.element;
 }
 
 function bindDnD() {
-  const tiles = tierList.querySelectorAll(".tile");
-  const zones = tierList.querySelectorAll(".tier-zone");
+  const tiles = document.querySelectorAll(".tile");
+  const zones = document.querySelectorAll(".tier-zone");
+  const rows = document.querySelectorAll(".tier-row");
 
   tiles.forEach(tile => {
-    tile.addEventListener("dragstart", () => tile.classList.add("dragging"));
-    tile.addEventListener("dragend", () => {
+    tile.addEventListener("dragstart", (e) => {
+      e.stopPropagation(); 
+      tile.classList.add("dragging");
+    });
+    tile.addEventListener("dragend", (e) => {
+      e.stopPropagation();
       tile.classList.remove("dragging");
       syncFromDOM();
     });
@@ -258,37 +306,78 @@ function bindDnD() {
   zones.forEach(zone => {
     zone.addEventListener("dragover", e => {
       e.preventDefault();
-      zone.classList.add("over");
-      const dragging = document.querySelector(".dragging");
+      e.stopPropagation();
+      const dragging = document.querySelector(".tile.dragging");
       if (!dragging) return;
+      zone.classList.add("over");
       const after = getDragAfterElement(zone, e.clientX);
       if (!after) zone.appendChild(dragging);
       else zone.insertBefore(dragging, after);
     });
 
     zone.addEventListener("dragleave", () => zone.classList.remove("over"));
-    zone.addEventListener("drop", () => zone.classList.remove("over"));
-  });
-}
-
-function syncFromDOM() {
-  const fresh = state.tiers.map(t => ({ ...t, tiles: [] }));
-  const map = new Map();
-  state.tiers.forEach(t => t.tiles.forEach(tile => map.set(tile.id, tile)));
-
-  document.querySelectorAll(".tier-zone").forEach(zone => {
-    const tierId = zone.dataset.tierId;
-    const targetTier = fresh.find(t => t.id === tierId);
-    if (!targetTier) return;
-
-    [...zone.querySelectorAll(".tile")].forEach(el => {
-      const tile = map.get(el.dataset.tileId);
-      if (tile) targetTier.tiles.push(tile);
+    zone.addEventListener("drop", (e) => {
+      e.stopPropagation();
+      zone.classList.remove("over");
     });
   });
 
-  state.tiers = fresh;
-  render();
+  rows.forEach(row => {
+    row.addEventListener("dragstart", (e) => {
+      if (e.target.closest('.tile') || e.target.closest('.tier-color-input') || e.target.closest('.tier-name-input') || e.target.closest('.top-buttons')) return;
+      row.classList.add("dragging-row");
+    });
+    row.addEventListener("dragend", (e) => {
+      row.classList.remove("dragging-row");
+      syncRowsFromDOM();
+    });
+  });
+
+  tierList.addEventListener("dragover", e => {
+    const draggingRow = document.querySelector(".dragging-row");
+    if (!draggingRow) return;
+    e.preventDefault();
+    const after = getDragAfterRow(tierList, e.clientY);
+    if (!after) tierList.appendChild(draggingRow);
+    else tierList.insertBefore(draggingRow, after);
+  });
+}
+
+function syncRowsFromDOM() {
+  const newTiers = [];
+  document.querySelectorAll(".tier-row").forEach(row => {
+    const id = row.dataset.tierId;
+    const tier = state.tiers.find(t => t.id === id);
+    if (tier) newTiers.push(tier);
+  });
+  state.tiers = newTiers;
+  syncCurrentListCache();
+}
+
+function syncFromDOM() {
+  const freshTiers = state.tiers.map(t => ({ ...t, tiles: [] }));
+  const freshTray = [];
+  const map = new Map();
+
+  state.tiers.forEach(t => t.tiles.forEach(tile => map.set(tile.id, tile)));
+  state.tray.forEach(tile => map.set(tile.id, tile));
+
+  document.querySelectorAll(".tier-zone").forEach(zone => {
+    const tierId = zone.dataset.tierId;
+    const targetTier = freshTiers.find(t => t.id === tierId);
+
+    [...zone.querySelectorAll(".tile")].forEach(el => {
+      const tile = map.get(el.dataset.tileId);
+      if (tile) {
+        if (tierId === "tray") freshTray.push(tile);
+        else if (targetTier) targetTier.tiles.push(tile);
+      }
+    });
+  });
+
+  state.tiers = freshTiers;
+  state.tray = freshTray;
+  syncCurrentListCache();
 }
 
 function getCurrentList() {
@@ -316,11 +405,14 @@ async function loadLists() {
   state.savedLists = lists.map(l => ({
     id: l.id,
     name: l.name,
-    payload: { tiers: normalizeTiers(l.payload?.tiers) },
+    payload: { 
+      tiers: normalizeTiers(l.payload?.tiers),
+      tray: Array.isArray(l.payload?.tray) ? l.payload.tray.map(normalizeTile).filter(Boolean) : []
+    },
   }));
 
   if (!state.savedLists.length) {
-    const payload = { tiers: makeDefaultTiers() };
+    const payload = { tiers: makeDefaultTiers(), tray: [] };
     const name = "My Tier List";
     const { id } = await api("/api/lists", {
       method: "POST",
@@ -347,7 +439,7 @@ async function saveCurrentList() {
 
 async function createNewList() {
   const name = (savedListName.value.trim() || "Untitled").slice(0, 80);
-  const payload = { tiers: makeDefaultTiers() };
+  const payload = { tiers: makeDefaultTiers(), tray: [] };
 
   const { id } = await api("/api/lists", {
     method: "POST",
@@ -375,121 +467,132 @@ async function deleteCurrentList() {
   selectList(state.currentListId);
 }
 
-addTierForm.addEventListener("submit", e => {
-  e.preventDefault();
-  const label = tierNameInput.value.trim();
-  if (!label) return;
-  state.tiers.push({ id: newId(), label, tiles: [] });
-  tierNameInput.value = "";
-  render();
+// Auto-scroll functionality while dragging
+document.addEventListener("dragover", e => {
+  const draggingTile = document.querySelector(".tile.dragging");
+  const draggingRow = document.querySelector(".dragging-row");
+  if (!draggingTile && !draggingRow) return;
+
+  const edgeSize = 60;
+  const scrollSpeed = 15;
+
+  if (e.clientY < edgeSize) {
+    window.scrollBy(0, -scrollSpeed);
+  } else if (window.innerHeight - e.clientY < edgeSize) {
+    window.scrollBy(0, scrollSpeed);
+  }
 });
 
-tierList.addEventListener("click", e => {
+document.addEventListener("change", e => {
+  if (e.target.classList.contains("tier-name-input")) {
+    const tierId = e.target.dataset.tierId;
+    const tier = state.tiers.find(t => t.id === tierId);
+    if (tier) {
+      tier.label = e.target.value.trim() || "Tier";
+      syncCurrentListCache();
+    }
+  }
+
+  if (e.target.classList.contains("tier-color-input")) {
+    const tierId = e.target.dataset.tierId;
+    const tier = state.tiers.find(t => t.id === tierId);
+    if (tier) {
+      tier.color = e.target.value;
+      syncCurrentListCache();
+      render();
+    }
+  }
+});
+
+document.addEventListener("click", e => {
+  document.querySelectorAll('.add-menu-container').forEach(c => {
+     if (!c.contains(e.target)) {
+       c.classList.remove('open');
+     }
+  });
+
+  const menuBtn = e.target.closest(".add-tier-menu-btn");
+  if (menuBtn) {
+    const container = menuBtn.closest(".add-menu-container");
+    container.classList.toggle("open");
+    return;
+  }
+
   const removeTileBtn = e.target.closest(".remove-tile");
   if (removeTileBtn) {
     const tileId = removeTileBtn.dataset.tileId;
     if (!tileId) return;
     removeTile(tileId);
+    syncCurrentListCache();
     render();
     return;
   }
 
-  const editTierBtn = e.target.closest(".edit-tier");
-  if (editTierBtn) {
-    const tierId = editTierBtn.dataset.tierId;
-    if (!tierId) return;
-    const tier = state.tiers.find(t => t.id === tierId);
-    if (!tier) return;
-
-    const nextLabel = prompt("Tier label:", tier.label);
-    if (nextLabel === null) return;
-    const trimmed = nextLabel.trim();
-    if (!trimmed) return;
-
-    tier.label = trimmed;
-    render();
-    return;
-  }
-
-  const btn = e.target.closest(".remove-tier");
-  if (!btn) return;
-
-  const id = btn.dataset.tierId;
-  const idx = state.tiers.findIndex(t => t.id === id);
-  if (idx < 0) return;
-
-  const removed = state.tiers.splice(idx, 1)[0];
-  if (state.tiers.length > 0) {
-    state.tiers[Math.max(0, idx - 1)].tiles.push(...removed.tiles);
-  }
-  render();
-});
-
-addTextForm.addEventListener("submit", e => {
-  e.preventDefault();
-  const tierId = textTierSelect.value;
-  const text = textTileInput.value.trim();
-  if (!tierId || !text) return;
-  addTileToTier(tierId, makeTextTile(text));
-  textTileInput.value = "";
-  render();
-});
-
-function deezerJsonp(url) {
-  return new Promise((resolve, reject) => {
-    const cb = `dz_cb_${Date.now()}_${Math.floor(Math.random() * 1e6)}`;
-    const script = document.createElement("script");
-    const sep = url.includes("?") ? "&" : "?";
-    const full = `${url}${sep}output=jsonp&callback=${cb}`;
-
-    window[cb] = data => {
-      cleanup();
-      resolve(data);
-    };
-
-    script.src = full;
-    script.onerror = () => {
-      cleanup();
-      reject(new Error("Deezer request failed"));
-    };
-
-    function cleanup() {
-      delete window[cb];
-      script.remove();
+  const addAboveBtn = e.target.closest(".add-tier-above");
+  if (addAboveBtn) {
+    const id = addAboveBtn.dataset.tierId;
+    const idx = state.tiers.findIndex(t => t.id === id);
+    if (idx >= 0) {
+      state.tiers.splice(idx, 0, { id: newId(), label: "New Tier", color: "#a0a0a0", tiles: [] });
+      syncCurrentListCache();
+      render();
     }
+    return;
+  }
 
-    document.body.appendChild(script);
+  const addBelowBtn = e.target.closest(".add-tier-below");
+  if (addBelowBtn) {
+    const id = addBelowBtn.dataset.tierId;
+    const idx = state.tiers.findIndex(t => t.id === id);
+    if (idx >= 0) {
+      state.tiers.splice(idx + 1, 0, { id: newId(), label: "New Tier", color: "#a0a0a0", tiles: [] });
+      syncCurrentListCache();
+      render();
+    }
+    return;
+  }
+
+  const removeBtn = e.target.closest(".remove-tier");
+  if (removeBtn) {
+    const id = removeBtn.dataset.tierId;
+    const idx = state.tiers.findIndex(t => t.id === id);
+    if (idx < 0) return;
+
+    const removed = state.tiers.splice(idx, 1)[0];
+    if (state.tiers.length > 0) {
+      state.tiers[Math.max(0, idx - 1)].tiles.push(...removed.tiles);
+    } else {
+      state.tray.push(...removed.tiles);
+    }
+    syncCurrentListCache();
+    render();
+  }
+});
+
+uploadBtn.addEventListener("click", () => imageUpload.click());
+imageUpload.addEventListener("change", async (e) => {
+  const files = Array.from(e.target.files);
+  const readPromises = files.map(file => {
+    return new Promise((resolve) => {
+      const reader = new FileReader();
+      reader.onload = (ev) => {
+        state.tray.push({
+          id: newId(),
+          type: "album", 
+          title: "", 
+          cover: ev.target.result,
+          artist: ""
+        });
+        resolve();
+      };
+      reader.readAsDataURL(file);
+    });
   });
-}
 
-deezerForm.addEventListener("submit", async e => {
-  e.preventDefault();
-  const q = albumQuery.value.trim();
-  if (!q) return;
-  albumResults.innerHTML = "<option>Searching...</option>";
-
-  try {
-    const data = await deezerJsonp(`https://api.deezer.com/search/album?q=${encodeURIComponent(q)}`);
-    state.albumResults = (data?.data || []).slice(0, 20);
-    if (!state.albumResults.length) {
-      albumResults.innerHTML = "<option>No results</option>";
-      return;
-    }
-
-    albumResults.innerHTML = state.albumResults
-      .map((a, i) => `<option value="${i}">${a.title} • ${a.artist?.name || ""}</option>`)
-      .join("");
-  } catch {
-    albumResults.innerHTML = "<option>Search failed</option>";
-  }
-});
-
-addAlbumBtn.addEventListener("click", () => {
-  const tierId = albumTierSelect.value;
-  const idx = Number(albumResults.value);
-  if (!tierId || Number.isNaN(idx) || !state.albumResults[idx]) return;
-  addTileToTier(tierId, makeAlbumTile(state.albumResults[idx]));
+  await Promise.all(readPromises);
+  syncCurrentListCache();
   render();
+  imageUpload.value = "";
 });
 
 async function exportTierListPng() {
@@ -498,23 +601,49 @@ async function exportTierListPng() {
     return;
   }
 
-  const width = tierList.scrollWidth;
-  const height = tierList.scrollHeight;
+  const targetElement = document.getElementById("tier-list");
+  
+  // Apply export mode class to hide interactive elements
+  targetElement.classList.add("export-mode");
+  
+  const tierHeightRaw = getComputedStyle(document.documentElement).getPropertyValue("--tier-height");
+  const tierHeight = Number.parseInt(tierHeightRaw, 10);
+  const size = Number.isNaN(tierHeight) ? 96 : tierHeight;
+
+  const allTiles = targetElement.querySelectorAll(".tile");
+  const albumTiles = targetElement.querySelectorAll(".tile.album");
+
+  // Fix html2canvas object-fit bug by completely hiding the <img> tag
+  // and dynamically loading it as a CSS background-image instead.
+  albumTiles.forEach(t => {
+    const img = t.querySelector("img");
+    if (img) {
+      t.style.backgroundImage = `url("${img.src}")`;
+      t.style.backgroundSize = "cover";
+      t.style.backgroundPosition = "center";
+    }
+  });
+
+  // Enforce rigid pixel sizing to prevent layout shifts
+  allTiles.forEach(t => {
+    t.style.width = `${size}px`;
+    t.style.height = `${size}px`;
+  });
+
+  // Wait a fraction of a second to ensure DOM updates apply before drawing
+  await new Promise(r => setTimeout(r, 50));
+
+  const width = targetElement.scrollWidth;
+  const height = targetElement.scrollHeight;
   const maxDim = Math.max(width, height);
   const scale = Math.max(2, Math.min(4, Math.floor(10000 / Math.max(1, maxDim))));
 
   try {
-    const canvas = await window.html2canvas(tierList, {
+    const canvas = await window.html2canvas(targetElement, {
       backgroundColor: "#111",
       useCORS: true,
       allowTaint: false,
       scale,
-      width,
-      height,
-      windowWidth: width,
-      windowHeight: height,
-      scrollX: 0,
-      scrollY: 0,
       logging: false,
     });
 
@@ -525,6 +654,16 @@ async function exportTierListPng() {
     link.click();
   } catch {
     alert("Export failed. Some external covers may block image capture.");
+  } finally {
+    // Revert layout back to normal
+    targetElement.classList.remove("export-mode");
+    allTiles.forEach(t => {
+      t.style.width = "";
+      t.style.height = "";
+      t.style.backgroundImage = "";
+      t.style.backgroundSize = "";
+      t.style.backgroundPosition = "";
+    });
   }
 }
 
@@ -564,7 +703,6 @@ logoutBtn.addEventListener("click", async () => {
   try {
     await api("/api/logout", { method: "POST" });
   } catch {
-    // Continue with redirect even if logout API fails.
   }
   window.location.href = "./login.html";
 });
@@ -573,11 +711,8 @@ exportBtn.addEventListener("click", exportTierListPng);
 
 resetBtn.addEventListener("click", () => {
   state.tiers = makeDefaultTiers();
-  state.albumResults = [];
-  tierNameInput.value = "";
-  textTileInput.value = "";
-  albumQuery.value = "";
-  albumResults.innerHTML = "";
+  state.tray = [];
+  syncCurrentListCache();
   render();
 });
 

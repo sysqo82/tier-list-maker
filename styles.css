@@ -67,22 +67,53 @@ button { cursor: pointer; }
   grid-template-columns: var(--label-width) 1fr;
   min-height: var(--tier-height);
   border-top: 1px solid var(--line);
+  cursor: grab;
+}
+
+.tier-row.dragging-row {
+  opacity: 0.5;
+  background: rgba(255, 255, 255, 0.1);
 }
 
 .tier-row:first-child { border-top: 0; }
 
 .tier-label {
-  display: grid;
-  place-items: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-end;
+  padding-bottom: 12px;
+  gap: 6px;
   font-weight: bold;
   color: #222;
   border-right: 1px solid var(--line);
   position: relative;
 }
 
+.tier-name-input {
+  background: rgba(255, 255, 255, 0.2);
+  border: 1px solid rgba(0, 0, 0, 0.2);
+  color: #111;
+  font-weight: bold;
+  text-align: center;
+  width: 90%;
+  font-size: 14px;
+  border-radius: 4px;
+  height: 24px;
+  margin-top: 14px;
+}
+
+.tier-color-input {
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 1px solid rgba(0,0,0,0.3);
+  border-radius: 4px;
+  cursor: pointer;
+  background: transparent;
+}
+
 .tier-label button {
-  position: absolute;
-  top: 4px;
   height: 22px;
   width: 22px;
   padding: 0;
@@ -90,19 +121,69 @@ button { cursor: pointer; }
   background: rgba(0,0,0,.25);
   color: #111;
   border: 0;
+  display: grid;
+  place-items: center;
+  font-size: 12px;
 }
 
-.tier-label .remove-tier {
-  right: 4px;
+.top-buttons {
+  position: absolute;
+  top: 4px;
+  left: 0;
+  width: 100%;
+  display: flex;
+  justify-content: space-between;
+  padding: 0 4px;
+  pointer-events: none;
 }
 
-.tier-label .edit-tier {
-  left: 4px;
+.top-buttons > * {
+  pointer-events: auto;
+}
+
+.add-menu-container {
+  position: relative;
+}
+
+.add-tier-dropdown {
+  display: none;
+  position: absolute;
+  top: 100%;
+  left: 0;
+  background: #2a2a2a;
+  border: 1px solid #444;
+  border-radius: 4px;
+  z-index: 50;
+  flex-direction: column;
+  width: 90px;
+  overflow: hidden;
+  box-shadow: 0 4px 8px rgba(0,0,0,0.5);
+}
+
+.add-menu-container.open .add-tier-dropdown {
+  display: flex;
+}
+
+.add-tier-dropdown button {
+  width: 100%;
+  height: 28px;
+  background: transparent;
+  color: #fff;
+  border-radius: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  font-size: 12px;
+}
+
+.add-tier-dropdown button:hover {
+  background: #444;
 }
 
 .tier-zone {
   background: var(--panel);
-  padding: 6px;
+  padding: 0 6px; 
   display: flex;
   flex-wrap: wrap;
   align-content: flex-start;
@@ -111,11 +192,11 @@ button { cursor: pointer; }
 }
 
 .tile {
-  width: var(--tile-size, 82px);
-  height: var(--tile-size, 82px);
+  width: var(--tile-size, 96px);
+  height: var(--tile-size, 96px);
   flex: 0 0 auto;
-  border: 1px solid #3b3b3b;
-  border-radius: 6px;
+  border: none;
+  border-radius: 0;
   background: #2a2a2a;
   overflow: hidden;
   user-select: none;
@@ -124,7 +205,7 @@ button { cursor: pointer; }
   place-items: center;
   text-align: center;
   font-size: 12px;
-  padding: 4px;
+  padding: 0; 
 }
 
 .tile.dragging { opacity: .45; }
@@ -223,4 +304,51 @@ button { cursor: pointer; }
   gap: 6px;
   font-size: 13px;
   color: #d9d9d9;
+}
+
+#tray-container {
+  margin-top: 20px;
+  border: 1px solid #c2b544;
+  border-radius: 4px;
+  background: var(--bg);
+}
+.tray-header {
+  background: #2a2a2a;
+  padding: 6px 12px;
+  font-size: 14px;
+  font-weight: bold;
+  color: #fff;
+  border-bottom: 1px solid var(--line);
+}
+#image-tray {
+  min-height: calc(var(--tier-height) + 12px);
+  padding: 6px;
+}
+
+/* Hide remove button when image tile is on the tier row */
+.tier-row .tier-zone .tile.album .remove-tile {
+  display: none;
+}
+
+/* Export Mode Styles (Added dynamically by JS during capture) */
+.export-mode .top-buttons,
+.export-mode .tier-color-input,
+.export-mode .remove-tile {
+  display: none !important;
+}
+
+.export-mode .tier-label {
+  justify-content: center !important;
+  padding-bottom: 0 !important;
+}
+
+.export-mode .tier-name-input {
+  background: transparent !important;
+  border: none !important;
+  margin-top: 0 !important;
+}
+
+/* Fixes html2canvas object-fit offset bug */
+.export-mode .tile img {
+  display: none !important; /* Hides image so background-image applies perfectly */
 }
