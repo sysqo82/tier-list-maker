@@ -24,32 +24,20 @@
         <button type="button" id="delete-list-btn">Delete List</button>
       </form>
 
-      <form id="add-tier-form" class="inline">
-        <input id="tier-name" type="text" placeholder="New tier label" required maxlength="12" />
-        <button type="submit">Add Tier</button>
-      </form>
-
-      <form id="add-text-tile-form" class="inline">
-        <select id="text-tier-select"></select>
-        <input id="text-tile" type="text" placeholder="Tile text" required maxlength="30" />
-        <button type="submit">Add Text Tile</button>
-      </form>
-
-      <form id="deezer-form" class="inline">
-        <select id="album-tier-select"></select>
-        <input id="album-query" type="text" placeholder="Search album (Deezer)" required />
-        <button type="submit">Search</button>
-        <select id="album-results"></select>
-        <button type="button" id="add-album-btn">Add Album Tile</button>
-      </form>
-
       <div class="inline">
+        <input type="file" id="image-upload" multiple accept="image/*" style="display:none;" />
+        <button type="button" id="upload-btn">Upload Images</button>
         <button type="button" id="export-btn">Export PNG</button>
         <button type="button" id="reset-btn">Reset All</button>
       </div>
     </section>
 
     <section id="tier-list" class="tier-list"></section>
+
+    <section id="tray-container">
+      <div class="tray-header">Image Tray</div>
+      <div id="image-tray" class="tier-zone" data-tier-id="tray"></div>
+    </section>
   </main>
 
   <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>

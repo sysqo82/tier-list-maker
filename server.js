@@ -20,7 +20,8 @@ const ALLOWED_ORIGINS = new Set([
 ]);
 
 const app = express();
-app.use(express.json({ limit: "1mb" }));
+// Increased the payload limit to 50mb to allow for base64 image saving
+app.use(express.json({ limit: "50mb" }));
 
 app.use((req, res, next) => {
   const origin = req.headers.origin;
