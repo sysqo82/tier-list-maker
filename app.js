@@ -258,11 +258,28 @@ function setTileSizes() {
   });
 }
 
-function getDragAfterElement(zone, x) {
+function getDragAfterElement(zone, x, y) {
   const draggableElements = [...zone.querySelectorAll(".tile:not(.dragging)")];
-  let closest = { offset: Number.NEGATIVE_INFINITY, element: null };
+  if (draggableElements.length === 0) return null;
 
+  // Group tiles by row so X comparisons only happen within the row under the cursor.
+  const rows = [];
   for (const child of draggableElements) {
+    const box = child.getBoundingClientRect();
+    let row = rows.find(r => Math.abs(r.top - box.top) < box.height / 2);
+    if (!row) {
+      row = { top: box.top, height: box.height, elements: [] };
+      rows.push(row);
+    }
+    row.elements.push(child);
+  }
+  rows.sort((a, b) => a.top - b.top);
+
+  let targetRow = rows.find(r => y < r.top + r.height);
+  if (!targetRow) targetRow = rows[rows.length - 1];
+
+  let closest = { offset: Number.NEGATIVE_INFINITY, element: null };
+  for (const child of targetRow.elements) {
     const box = child.getBoundingClientRect();
     const offset = x - (box.left + box.width / 2);
     if (offset < 0 && offset > closest.offset) {
@@ -310,7 +327,7 @@ function bindDnD() {
       const dragging = document.querySelector(".tile.dragging");
       if (!dragging) return;
       zone.classList.add("over");
-      const after = getDragAfterElement(zone, e.clientX);
+      const after = getDragAfterElement(zone, e.clientX, e.clientY);
       if (!after) zone.appendChild(dragging);
       else zone.insertBefore(dragging, after);
     });
