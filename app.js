@@ -27,6 +27,7 @@ function makeDefaultTiers() {
 const state = {
   tiers: makeDefaultTiers(),
   tray: [],
+  tierListWidth: null,
   savedLists: [],
   currentListId: null,
 };
@@ -36,6 +37,34 @@ const API_BASE = window.location.port === "5500"
   : "";
 
 const tierList = document.getElementById("tier-list");
+
+tierList.addEventListener("pointerdown", e => {
+  const handle = e.target.closest(".tier-resize-handle");
+  if (!handle) return;
+  e.preventDefault();
+  const sign = handle.dataset.side === "left" ? -1 : 1;
+  const startX = e.clientX;
+  const startRect = tierList.getBoundingClientRect();
+  const startWidth = startRect.width;
+  const startMargin = Number.parseFloat(getComputedStyle(tierList).marginLeft) || 0;
+  // Growing past the container is limited so the left edge stays on screen
+  const maxWidth = startWidth + 2 * Math.max(0, startRect.left);
+  const onMove = ev => {
+    const width = startWidth + sign * (ev.clientX - startX) * 2;
+    const clamped = Math.min(maxWidth, Math.max(300, width));
+    tierList.style.width = `${clamped}px`;
+    tierList.style.maxWidth = "none";
+    tierList.style.marginLeft = `${startMargin - (clamped - startWidth) / 2}px`;
+    tierList.style.marginRight = "0";
+    state.tierListWidth = Math.round(clamped);
+  };
+  const onUp = () => {
+    window.removeEventListener("pointermove", onMove);
+    window.removeEventListener("pointerup", onUp);
+  };
+  window.addEventListener("pointermove", onMove);
+  window.addEventListener("pointerup", onUp);
+});
 const userEmail = document.getElementById("user-email");
 const logoutBtn = document.getElementById("logout-btn");
 const savedListSelect = document.getElementById("saved-list-select");
@@ -108,13 +137,32 @@ function normalizeTiers(rawTiers) {
 }
 
 function payloadFromState() {
-  return { tiers: state.tiers, tray: state.tray };
+  return { tiers: state.tiers, tray: state.tray, tierListWidth: state.tierListWidth };
+}
+
+function normalizeWidth(w) {
+  return Number.isFinite(w) && w >= 300 ? w : null;
+}
+
+function applyTierListWidth() {
+  Object.assign(tierList.style, { width: "", maxWidth: "", marginLeft: "", marginRight: "" });
+  const width = state.tierListWidth;
+  if (!width) return;
+  const natural = tierList.getBoundingClientRect().width;
+  const natMargin = Number.parseFloat(getComputedStyle(tierList).marginLeft) || 0;
+  Object.assign(tierList.style, {
+    width: `${width}px`,
+    maxWidth: "none",
+    marginLeft: `${natMargin - (width - natural) / 2}px`,
+    marginRight: "0",
+  });
 }
 
 function applyPayload(payload) {
   const tiers = normalizeTiers(payload?.tiers);
   state.tiers = tiers.length ? tiers : makeDefaultTiers();
   state.tray = Array.isArray(payload?.tray) ? payload.tray.map(normalizeTile).filter(Boolean) : [];
+  state.tierListWidth = normalizeWidth(payload?.tierListWidth);
 }
 
 function rgbToHex(rgbStr) {
@@ -238,7 +286,7 @@ function render() {
         </div>
       </section>
     `;
-  }).join("");
+  }).join("") + `<div class="tier-resize-handle left" data-side="left"></div><div class="tier-resize-handle right" data-side="right"></div>`;
 
   const trayZone = document.getElementById("image-tray");
   if (trayZone) {
@@ -246,6 +294,7 @@ function render() {
   }
 
   setTileSizes();
+  applyTierListWidth();
   bindDnD();
 }
 
@@ -424,7 +473,8 @@ async function loadLists() {
     name: l.name,
     payload: { 
       tiers: normalizeTiers(l.payload?.tiers),
-      tray: Array.isArray(l.payload?.tray) ? l.payload.tray.map(normalizeTile).filter(Boolean) : []
+      tray: Array.isArray(l.payload?.tray) ? l.payload.tray.map(normalizeTile).filter(Boolean) : [],
+      tierListWidth: normalizeWidth(l.payload?.tierListWidth)
     },
   }));
 
@@ -729,6 +779,7 @@ exportBtn.addEventListener("click", exportTierListPng);
 resetBtn.addEventListener("click", () => {
   state.tiers = makeDefaultTiers();
   state.tray = [];
+  state.tierListWidth = null;
   syncCurrentListCache();
   render();
 });

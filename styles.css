@@ -60,7 +60,25 @@ button { cursor: pointer; }
 
 .tier-list {
   border: 1px solid var(--line);
+  position: relative;
+  margin: 0 auto;
+  max-width: 100%;
+  box-sizing: border-box;
 }
+
+.tier-resize-handle {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 8px;
+  cursor: ew-resize;
+  z-index: 5;
+}
+
+.tier-resize-handle.left { left: -5px; }
+.tier-resize-handle.right { right: -5px; }
+.tier-resize-handle:hover { background: rgba(255, 255, 255, 0.25); }
+.export-mode .tier-resize-handle { display: none; }
 
 .tier-row {
   display: grid;

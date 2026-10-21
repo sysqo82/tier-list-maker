@@ -11,3 +11,6 @@
 - Use ES modules for Node.js code. Prefer `import`/`export`; do not use `require`/`module.exports`.
 - Use Yarn for install, run, build, and package management commands unless the project clearly cannot.
 - When working with git, use `main` as the default branch. Never target `master`.
+- When the user asks you to commit and push the changes, always check if it's on a branch, if it's on main, branch off a new one before committing.
+- Always write clear and concise commit and messages that accurately describe the changes made.
+- Always supply the user with a Github-formatted PR message that accurately describes the changes made.
