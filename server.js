@@ -40,6 +40,16 @@ app.use((req, res, next) => {
   next();
 });
 
+const asyncHandler = fn => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
+
+function stringifyPayload(payload) {
+  try {
+    return JSON.stringify(payload);
+  } catch {
+    return null;
+  }
+}
+
 function newId() {
   return crypto.randomUUID();
 }
@@ -85,8 +95,11 @@ function parseCookies(req) {
     const idx = part.indexOf("=");
     if (idx < 0) return;
     const key = part.slice(0, idx).trim();
-    const val = decodeURIComponent(part.slice(idx + 1).trim());
-    cookies[key] = val;
+    try {
+      cookies[key] = decodeURIComponent(part.slice(idx + 1).trim());
+    } catch {
+      // skip cookies that fail to decode
+    }
   });
   return cookies;
 }
@@ -188,7 +201,57 @@ async function initDb() {
       updated_at TEXT NOT NULL,
       FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
     );
+
+    CREATE TABLE IF NOT EXISTS images (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      mime TEXT NOT NULL,
+      data BLOB NOT NULL,
+      created_at TEXT NOT NULL,
+      FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+    );
   `);
+}
+
+async function insertImage(userId, mime, data) {
+  const id = newId();
+  await db.run(
+    `INSERT INTO images (id, user_id, mime, data, created_at) VALUES (?, ?, ?, ?, ?)`,
+    [id, userId, mime, data, new Date().toISOString()]
+  );
+  return `/api/images/${id}`;
+}
+
+// One-time move of base64 data URL covers out of list payloads into the images table.
+async function migrateInlineImages() {
+  const rows = await db.all(
+    `SELECT id, user_id FROM tier_lists WHERE payload_json LIKE '%"data:image/%'`
+  );
+  if (!rows.length) return;
+
+  const backupPath = `${DB_PATH}.bak-${Date.now()}`;
+  await db.run(`VACUUM INTO ?`, [backupPath]);
+  console.log(`Backed up DB to ${backupPath}, migrating images in ${rows.length} lists`);
+
+  for (const { id, user_id: userId } of rows) {
+    const { payload_json: json } = await db.get(`SELECT payload_json FROM tier_lists WHERE id = ?`, [id]);
+    const payload = JSON.parse(json);
+    const tiles = [...(payload.tiers || []).flatMap(t => t.tiles || []), ...(payload.tray || [])];
+
+    await db.exec("BEGIN");
+    try {
+      for (const tile of tiles) {
+        const match = /^data:([^;,]+);base64,(.*)$/s.exec(tile?.cover || "");
+        if (!match) continue;
+        tile.cover = await insertImage(userId, match[1], Buffer.from(match[2], "base64"));
+      }
+      await db.run(`UPDATE tier_lists SET payload_json = ? WHERE id = ?`, [JSON.stringify(payload), id]);
+      await db.exec("COMMIT");
+    } catch (err) {
+      await db.exec("ROLLBACK");
+      throw err;
+    }
+  }
 }
 
 async function createSession(userId) {
@@ -226,7 +289,7 @@ async function getSessionFromRequest(req) {
   return session;
 }
 
-async function authRequired(req, res, next) {
+const authRequired = asyncHandler(async (req, res, next) => {
   const session = await getSessionFromRequest(req);
   if (!session) {
     clearSessionCookie(res);
@@ -235,7 +298,7 @@ async function authRequired(req, res, next) {
 
   req.user = { id: session.user_id, email: session.email, sessionId: session.id };
   next();
-}
+});
 
 function normalizeListPayload(payload) {
   if (!payload || !Array.isArray(payload.tiers)) return null;
@@ -321,19 +384,19 @@ app.post("/api/login", async (req, res) => {
   }
 });
 
-app.post("/api/logout", authRequired, async (req, res) => {
+app.post("/api/logout", authRequired, asyncHandler(async (req, res) => {
   await db.run(`DELETE FROM sessions WHERE id = ?`, [req.user.sessionId]);
   clearSessionCookie(res);
   res.json({ ok: true });
-});
+}));
 
-app.get("/api/me", authRequired, async (req, res) => {
+app.get("/api/me", authRequired, asyncHandler(async (req, res) => {
   res.json({ email: req.user.email, userId: req.user.id });
-});
+}));
 
-app.get("/api/lists", authRequired, async (req, res) => {
+app.get("/api/lists", authRequired, asyncHandler(async (req, res) => {
   const rows = await db.all(
-    `SELECT id, name, payload_json, updated_at
+    `SELECT id, name, updated_at
      FROM tier_lists
      WHERE user_id = ?
      ORDER BY updated_at DESC`,
@@ -344,17 +407,34 @@ app.get("/api/lists", authRequired, async (req, res) => {
     id: row.id,
     name: row.name,
     updatedAt: row.updated_at,
-    payload: JSON.parse(row.payload_json),
   }));
 
   res.json({ lists });
-});
+}));
 
-app.post("/api/lists", authRequired, async (req, res) => {
+app.get("/api/lists/:id", authRequired, asyncHandler(async (req, res) => {
+  const row = await db.get(
+    `SELECT id, name, payload_json, updated_at
+     FROM tier_lists
+     WHERE id = ? AND user_id = ?`,
+    [String(req.params.id || ""), req.user.id]
+  );
+  if (!row) return res.status(404).json({ error: "List not found" });
+
+  res.json({
+    id: row.id,
+    name: row.name,
+    updatedAt: row.updated_at,
+    payload: JSON.parse(row.payload_json),
+  });
+}));
+
+app.post("/api/lists", authRequired, asyncHandler(async (req, res) => {
   const name = String(req.body?.name || "").trim().slice(0, 80) || "Untitled";
   const payload = normalizeListPayload(req.body?.payload);
 
-  if (!payload) {
+  const payloadJson = payload && stringifyPayload(payload);
+  if (!payloadJson) {
     return res.status(400).json({ error: "Invalid payload" });
   }
 
@@ -364,18 +444,19 @@ app.post("/api/lists", authRequired, async (req, res) => {
   await db.run(
     `INSERT INTO tier_lists (id, user_id, name, payload_json, created_at, updated_at)
      VALUES (?, ?, ?, ?, ?, ?)`,
-    [id, req.user.id, name, JSON.stringify(payload), now, now]
+    [id, req.user.id, name, payloadJson, now, now]
   );
 
   res.status(201).json({ id });
-});
+}));
 
-app.put("/api/lists/:id", authRequired, async (req, res) => {
+app.put("/api/lists/:id", authRequired, asyncHandler(async (req, res) => {
   const listId = String(req.params.id || "");
   const name = String(req.body?.name || "").trim().slice(0, 80) || "Untitled";
   const payload = normalizeListPayload(req.body?.payload);
 
-  if (!payload) {
+  const payloadJson = payload && stringifyPayload(payload);
+  if (!payloadJson) {
     return res.status(400).json({ error: "Invalid payload" });
   }
 
@@ -390,13 +471,13 @@ app.put("/api/lists/:id", authRequired, async (req, res) => {
     `UPDATE tier_lists
      SET name = ?, payload_json = ?, updated_at = ?
      WHERE id = ? AND user_id = ?`,
-    [name, JSON.stringify(payload), new Date().toISOString(), listId, req.user.id]
+    [name, payloadJson, new Date().toISOString(), listId, req.user.id]
   );
 
   res.json({ ok: true });
-});
+}));
 
-app.delete("/api/lists/:id", authRequired, async (req, res) => {
+app.delete("/api/lists/:id", authRequired, asyncHandler(async (req, res) => {
   const listId = String(req.params.id || "");
   const existing = await db.get(
     `SELECT id FROM tier_lists WHERE id = ? AND user_id = ?`,
@@ -406,44 +487,76 @@ app.delete("/api/lists/:id", authRequired, async (req, res) => {
 
   await db.run(`DELETE FROM tier_lists WHERE id = ? AND user_id = ?`, [listId, req.user.id]);
   res.json({ ok: true });
-});
+}));
 
-app.get(["/", "/index.html"], async (req, res) => {
+app.post(
+  "/api/images",
+  authRequired,
+  express.raw({ type: () => true, limit: "100mb" }),
+  asyncHandler(async (req, res) => {
+    const mime = String(req.headers["content-type"] || "");
+    if (!mime.startsWith("image/") || !Buffer.isBuffer(req.body) || !req.body.length) {
+      return res.status(400).json({ error: "Invalid image" });
+    }
+    const url = await insertImage(req.user.id, mime, req.body);
+    res.status(201).json({ url });
+  })
+);
+
+app.get("/api/images/:id", authRequired, asyncHandler(async (req, res) => {
+  const row = await db.get(
+    `SELECT mime, data FROM images WHERE id = ? AND user_id = ?`,
+    [String(req.params.id || ""), req.user.id]
+  );
+  if (!row) return res.status(404).json({ error: "Image not found" });
+  res.setHeader("Cache-Control", "private, max-age=31536000, immutable");
+  res.type(row.mime).send(row.data);
+}));
+
+app.get(["/", "/index.html"], asyncHandler(async (req, res) => {
   const session = await getSessionFromRequest(req);
   if (!session) {
     clearSessionCookie(res);
     return res.redirect(302, "/login");
   }
-  return res.sendFile(path.join(__dirname, "index.html"));
-});
+  return res.sendFile(path.join(__dirname, "public", "index.html"));
+}));
 
-app.get(["/login", "/login.html"], async (req, res) => {
+app.get(["/login", "/login.html"], asyncHandler(async (req, res) => {
   const session = await getSessionFromRequest(req);
   if (session) {
     return res.redirect(302, "/");
   }
-  return res.sendFile(path.join(__dirname, "login.html"));
-});
+  return res.sendFile(path.join(__dirname, "public", "login.html"));
+}));
 
-app.get(["/register", "/register.html"], async (req, res) => {
+app.get(["/register", "/register.html"], asyncHandler(async (req, res) => {
   const session = await getSessionFromRequest(req);
   if (session) {
     return res.redirect(302, "/");
   }
-  return res.sendFile(path.join(__dirname, "register.html"));
-});
+  return res.sendFile(path.join(__dirname, "public", "register.html"));
+}));
 
 app.get("/health", (_req, res) => {
   res.json({ ok: true });
 });
 
-app.use(express.static(__dirname));
+app.use(express.static(path.join(__dirname, "public")));
 
 app.use((err, _req, res, _next) => {
+  const status = err.status || err.statusCode || 500;
+  if (status === 413) {
+    return res.status(413).json({ error: "List too large to save. Remove or use smaller images." });
+  }
+  if (status >= 400 && status < 500) {
+    return res.status(status).json({ error: "Bad request" });
+  }
   res.status(500).json({ error: "Internal server error" });
 });
 
 await initDb();
+await migrateInlineImages();
 app.listen(PORT, () => {
   console.log(`Tier list app listening on ${PORT}`);
 });

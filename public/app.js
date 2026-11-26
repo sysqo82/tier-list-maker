@@ -234,7 +234,7 @@ function renderTile(tile) {
     return `
       <article class="tile album" draggable="true" data-tile-id="${tile.id}">
         <button type="button" class="remove-tile" data-tile-id="${tile.id}" title="Remove tile">×</button>
-        <img src="${tile.cover}" alt="${tile.title}" crossorigin="anonymous" />
+        <img src="${tile.cover.startsWith("/api/") ? API_BASE + tile.cover : tile.cover}" alt="${tile.title}" crossorigin="${tile.cover.startsWith("/api/") ? "use-credentials" : "anonymous"}" />
         ${captionDiv}
       </article>
     `;
@@ -450,9 +450,17 @@ function getCurrentList() {
   return state.savedLists.find(l => l.id === state.currentListId) || null;
 }
 
-function selectList(listId) {
+async function selectList(listId) {
   const list = state.savedLists.find(l => l.id === listId);
   if (!list) return;
+  if (!list.payload) {
+    const { payload } = await api(`/api/lists/${list.id}`, { method: "GET" });
+    list.payload = {
+      tiers: normalizeTiers(payload?.tiers),
+      tray: Array.isArray(payload?.tray) ? payload.tray.map(normalizeTile).filter(Boolean) : [],
+      tierListWidth: normalizeWidth(payload?.tierListWidth)
+    };
+  }
   state.currentListId = list.id;
   savedListName.value = list.name;
   applyPayload(list.payload);
@@ -468,15 +476,7 @@ function syncCurrentListCache() {
 
 async function loadLists() {
   const { lists } = await api("/api/lists", { method: "GET" });
-  state.savedLists = lists.map(l => ({
-    id: l.id,
-    name: l.name,
-    payload: { 
-      tiers: normalizeTiers(l.payload?.tiers),
-      tray: Array.isArray(l.payload?.tray) ? l.payload.tray.map(normalizeTile).filter(Boolean) : [],
-      tierListWidth: normalizeWidth(l.payload?.tierListWidth)
-    },
-  }));
+  state.savedLists = lists.map(l => ({ id: l.id, name: l.name, payload: null }));
 
   if (!state.savedLists.length) {
     const payload = { tiers: makeDefaultTiers(), tray: [] };
@@ -488,8 +488,7 @@ async function loadLists() {
     state.savedLists = [{ id, name, payload }];
   }
 
-  state.currentListId = state.savedLists[0].id;
-  selectList(state.currentListId);
+  await selectList(state.savedLists[0].id);
 }
 
 async function saveCurrentList() {
@@ -530,8 +529,7 @@ async function deleteCurrentList() {
     return;
   }
 
-  state.currentListId = state.savedLists[0].id;
-  selectList(state.currentListId);
+  await selectList(state.savedLists[0].id);
 }
 
 // Auto-scroll functionality while dragging
@@ -639,24 +637,26 @@ document.addEventListener("click", e => {
 uploadBtn.addEventListener("click", () => imageUpload.click());
 imageUpload.addEventListener("change", async (e) => {
   const files = Array.from(e.target.files);
-  const readPromises = files.map(file => {
-    return new Promise((resolve) => {
-      const reader = new FileReader();
-      reader.onload = (ev) => {
-        state.tray.push({
-          id: newId(),
-          type: "album", 
-          title: "", 
-          cover: ev.target.result,
-          artist: ""
-        });
-        resolve();
-      };
-      reader.readAsDataURL(file);
+  const readPromises = files.map(async file => {
+    const { url: cover } = await api("/api/images", {
+      method: "POST",
+      headers: { "Content-Type": file.type || "application/octet-stream" },
+      body: file,
+    });
+    state.tray.push({
+      id: newId(),
+      type: "album", 
+      title: "", 
+      cover,
+      artist: ""
     });
   });
 
-  await Promise.all(readPromises);
+  try {
+    await Promise.all(readPromises);
+  } catch (err) {
+    alert(err.message);
+  }
   syncCurrentListCache();
   render();
   imageUpload.value = "";
@@ -734,10 +734,14 @@ async function exportTierListPng() {
   }
 }
 
-savedListSelect.addEventListener("change", () => {
+savedListSelect.addEventListener("change", async () => {
   const id = savedListSelect.value;
   if (!id) return;
-  selectList(id);
+  try {
+    await selectList(id);
+  } catch (err) {
+    alert(err.message);
+  }
 });
 
 newListBtn.addEventListener("click", async () => {
