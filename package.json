@@ -1,6 +1,6 @@
 {
   "name": "tier-list-maker",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "private": true,
   "type": "module",
   "description": "Tier list maker with local auth and per-user saved lists",
